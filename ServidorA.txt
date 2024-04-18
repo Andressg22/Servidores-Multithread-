@@ -1,0 +1,73 @@
+import java.io.*;
+import java.net.*;
+
+public class ServidorA {
+    public static void main(String[] args) {
+        try {
+            ServerSocket serverSocket = new ServerSocket(50000);
+            System.out.println("Servidor A esperando conexiones en el puerto 50000...");
+
+            while (true) {
+                Socket clientSocket = serverSocket.accept();
+                System.out.println("Cliente conectado desde " + clientSocket.getInetAddress());
+
+                // Crear un hilo para manejar la conexión del cliente
+                Thread clientThread = new Thread(new ClientHandler(clientSocket));
+                clientThread.start();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+class ClientHandler implements Runnable {
+    private Socket clientSocket;
+
+    public ClientHandler(Socket clientSocket) {
+        this.clientSocket = clientSocket;
+    }
+
+    @Override
+    public void run() {
+        try {
+            // Obtener flujos de entrada y salida del cliente
+            BufferedReader in = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+            PrintWriter out = new PrintWriter(clientSocket.getOutputStream(), true);
+
+            // Leer los números enteros de 64 bits del cliente
+            String datos = in.readLine();
+            String[] datosSeparados = datos.split(",");
+
+            long numero = Long.parseLong(datosSeparados[0]);
+            long numeroInicial = Long.parseLong(datosSeparados[1]);
+            long numeroFinal = Long.parseLong(datosSeparados[2]);
+
+            /*long numero = Long.parseLong(in.readLine());
+            long numeroInicial = Long.parseLong(in.readLine());
+            long numeroFinal = Long.parseLong(in.readLine());*/
+
+            boolean divide = false;
+            
+            // Verificar si hay algún número que divide a 'numero'
+            for (long n = numeroInicial; n <= numeroFinal; n++) {
+                if (numero % n == 0) {
+                    divide = true;
+                    break;
+                }
+            }
+
+            // Enviar la respuesta al cliente
+            if (divide) {
+                out.println("DIVIDE");
+            } else {
+                out.println("NO DIVIDE");
+            }
+
+            // Cerrar la conexión
+            clientSocket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}

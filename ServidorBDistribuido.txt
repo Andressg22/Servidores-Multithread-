@@ -1,0 +1,160 @@
+//Este es el servidor B, solo que lo guarde como ServidorBDistribuido porque me estaba confuniendo con otro codigo que tenia mal
+
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpHandler;
+import com.sun.net.httpserver.HttpExchange;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.util.Date;
+import java.text.SimpleDateFormat;
+import java.net.Socket;
+import java.io.PrintWriter;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+
+public class ServidorBDistribuido {
+    public static void main(String[] args) {
+        try {
+            HttpServer server = HttpServer.create(new InetSocketAddress(80), 0);
+            server.createContext("/", new PrimeHandler());
+            server.setExecutor(null);
+            server.start();
+            System.out.println("Servidor HTTP en ejecución en el puerto 80...");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+
+class PrimeHandler implements HttpHandler {
+    @Override
+    public void handle(HttpExchange exchange) throws IOException {
+        if (exchange.getRequestMethod().equalsIgnoreCase("GET")) {
+            String requestURI = exchange.getRequestURI().toString();
+            String[] parts = requestURI.split("/");
+            
+            if (parts.length == 2) {
+                try {
+                    long numero = Long.parseLong(parts[1]);
+                    boolean esPrimo = verificarPrimo(numero);
+                    
+                    // Configurar la respuesta HTTP
+                    exchange.getResponseHeaders().add("Content-Type", "text/plain");
+                    
+                    // Configurar la caché del navegador
+                    SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z");
+                    exchange.getResponseHeaders().add("Last-Modified", sdf.format(new Date()));
+                    
+                    String ifModifiedSince = exchange.getRequestHeaders().getFirst("If-Modified-Since");
+                    if (ifModifiedSince != null && !ifModifiedSince.isEmpty()) {
+                        // Verificar si el navegador tiene la versión en caché
+                        exchange.sendResponseHeaders(304, -1); // Not Modified
+                    } else {
+                        // Enviar respuesta al cliente
+                        String response = esPrimo ? "ES PRIMO" : "NO ES PRIMO";
+                        exchange.sendResponseHeaders(200, response.length());
+                        OutputStream os = exchange.getResponseBody();
+                        os.write(response.getBytes());
+                        
+                        os.close();
+                    }
+                } catch (NumberFormatException e) {
+                    // Si no se proporciona un número válido en la URL
+                    exchange.sendResponseHeaders(400, -1); // Bad Request
+                }
+            } else {
+                // Si la URL no tiene el formato correcto
+                exchange.sendResponseHeaders(400, -1); // Bad Request
+            }
+        } else {
+            // Si la solicitud no es GET
+            exchange.sendResponseHeaders(405, -1); // Method Not Allowed
+        }
+        
+        exchange.close();
+    }
+    
+    private boolean verificarPrimo(long numero) {
+
+        if (numero <= 1) {
+            return false; // Los números menores o iguales a 1 no son primos
+        }
+
+        long numeroDeServidores = 3;
+        String[] direccionesDeServidores = {"localhost", "20.232.99.152", "20.168.254.145"};
+        int puertoDeDestino = 50000;
+        long limiteInferiorDeIntervalo = 2;
+        long limiteSuperiorDeIntervalo = numero / 2;
+        long longitudDeIntervalo = limiteSuperiorDeIntervalo - limiteInferiorDeIntervalo + 1;
+        long numeroDeElementosEnServidor = longitudDeIntervalo / numeroDeServidores;
+        long elementosEnUltimoServidor = longitudDeIntervalo % numeroDeServidores;
+        
+        if(elementosEnUltimoServidor == 0)
+            elementosEnUltimoServidor = numeroDeElementosEnServidor;
+        
+        if(numeroDeElementosEnServidor  < 1){
+            numeroDeServidores = longitudDeIntervalo;
+            numeroDeElementosEnServidor = 1;
+            elementosEnUltimoServidor = 1;
+        }
+
+        int i;
+        for(i = 0; i < numeroDeServidores - 1; i++){
+            // Crear una instancia de ClienteTCP y enviar datos al servidor A
+            ClienteTCP clienteTCP = new ClienteTCP(direccionesDeServidores[i], 50000);
+            String datos = numero + "," + (limiteInferiorDeIntervalo + numeroDeElementosEnServidor * i) + "," + ((limiteInferiorDeIntervalo + numeroDeElementosEnServidor * (i+1)) - 1); // Ajusta los datos según tu lógica
+            String respuestaServidorA = clienteTCP.enviarDatos(datos);
+            System.out.println("Envío: " + datos);
+            System.out.println("Respuesta del servidor A: " + respuestaServidorA);
+            if(respuestaServidorA.equals("DIVIDE")){
+                return false;
+            }
+        }
+        ClienteTCP clienteTCP = new ClienteTCP(direccionesDeServidores[i], 50000);
+        String datos = numero + "," + (limiteInferiorDeIntervalo + numeroDeElementosEnServidor * i) + "," + ((limiteInferiorDeIntervalo + numeroDeElementosEnServidor * i) + elementosEnUltimoServidor - 1); // Ajusta los datos según tu lógica
+        System.out.println("Envío: " + datos);
+        String respuestaServidorA = clienteTCP.enviarDatos(datos);
+        System.out.println("Respuesta del servidor A: " + respuestaServidorA);
+        if(respuestaServidorA.equals("DIVIDE")){
+            return false;
+        }
+
+        
+        return true; // Si no se encontró ningún divisor, es primo
+    }
+}
+
+
+// Clase interna para el cliente TCP
+class ClienteTCP {
+    private String servidorDireccion;
+    private int servidorPuerto;
+    
+    public ClienteTCP(String direccion, int puerto) {
+        this.servidorDireccion = direccion;
+        this.servidorPuerto = puerto;
+    }
+    
+    public String enviarDatos(String datos) {
+        String respuesta = null;
+        
+        try (Socket socket = new Socket(servidorDireccion, servidorPuerto)) {
+            OutputStream os = socket.getOutputStream();
+            PrintWriter writer = new PrintWriter(os, true);
+            writer.println(datos);
+            
+            // Leer la respuesta del servidor
+            InputStream is = socket.getInputStream();
+            BufferedReader reader = new BufferedReader(new InputStreamReader(is));
+            respuesta = reader.readLine();
+            
+            socket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        
+        return respuesta;
+    }
+}
